@@ -18,9 +18,9 @@
  * USA.
  */
 
-#include "wsmp.c"
-#include "encode.c"
-#include "decode.c"
+#include "wsmp.h"
+#include "encode.h"
+#include "decode.h"
 #include <time.h>
 #include <stdlib.h>
 #include <assert.h>
