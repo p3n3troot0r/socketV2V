@@ -1,0 +1,53 @@
+0. Obtain hardware with an Atheros ath9k or ath9k_htc chipset that supports dual-band networking (2GHz and 5GHz). There exist no USB devices currently in production, however there are a handful of PCIe cards that support this functionality. The one we used can be found here:
+	- https://wikidevi.com/wiki/TP-LINK_TL-WDN4800
+- The chipset is AR9380:
+	- https://wikidevi.com/files/Atheros/specsheets/AR9380.pdf
+- NOTE: ath10k natively supports 802.11ac, which (SHOULD) include dual-band communication. It may be possible to adapt the changes contained in this repository for the ath10k driver and meet with a higher level of success, if ath10k chip production becomes more popular.
+
+I. Download the wireless-next v3.19 kernel via:
+	git clone https://kernel.googlesource.com/pub/scm/linux/kernel/git/linville/wireless-next
+
+II. Add the necessary patched files:
+	cp -r kernel-files/* wireless-next/
+
+III. Build the wireless-next kernel:
+- Note: a .config file is included in the kernel-files/ directory that has all the configuration options necessary for this project. If your hardware requires another set of configuration options, you can merge your .config with the one provided using: Linux/scripts/kconfig/merge_config.sh 
+	(i). make -j4
+		- ignore the compiler warnings about string formatting in debug statements
+	(ii). make modules_install install
+	
+
+IV. Build the userspace utilities:
+- Some dependencies may be required, such as libnl, libnl-dev, python-m2crypto, libgcrypt
+
+	a. iw:
+		- make
+		- sudo make install
+	b. wireless-regdb:
+		- make
+		- sudo make install
+	c. crda:
+		- cp /lib/crda/pubkeys/[YOUR_USERNAME].key.pub.pem pubkeys/
+		- make
+		- sudo REG_BIN=/lib/crda/regulatory.bin make install
+
+V. Reboot:
+	- sudo shutdown -r now
+		- select appropriate kernel on boot (from wireless-next/Makefile:4)
+		- may be 3.19-rc1
+
+VI. Configure the regulatory domain:
+	- iw reg set US
+
+VII. Configure the appropriate wireless interface (in this example mine is wlan0):
+	- ip link set wlan0 down
+	- iw dev wlan0 set type ocb
+	- ip link set wlan0 up
+	- iw dev wlan0 ocb join [control frequency] [5/10]MHz
+		- I use 5890 (MHz) to test, as it is a standard control channel for ITS
+
+- At this point, you will be able to resume development of this stack. Some hints will be given via:
+	- dmesg
+	- iw wlan0 info
+		- refer to bugs.txt 
+

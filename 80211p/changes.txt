@@ -1,0 +1,268 @@
+/* Author:	Duncan Woodbury
+ * Email: 	80211p@silent-cyber.com
+ * Description:	The purpose of this project was to develop an open-source
+ *	DSRC stack built on top of 802.11P (IEEE-1609.x). Due to the
+ *	unavailability of dual-band supporting hardware and the challenges of
+ *	understanding the full nature of the ath9k driver relative to the 
+ *	needs of IEEE-1609.x, the project is incomplete. This document will
+ *	outline the work done so far, the work required, and the challenges
+ *	thereof. 
+ */
+
+0. What's included && instructions for building
+	I. Kernel-space:
+		- See list of files in following section
+			- ath/ath9k driver
+			- cfg80211 utility
+			- mac80211 utility
+			- nl80211 utility
+	II. User-space utilities
+		- Patched version of iw-4.7
+		- Patched version of wireless-regdb (provided by ZENOME)
+		- Patched version of crda (provided by ZENOME)
+
+I. List of affected files && modifications
+# list of files from the kernel source modified by this project
+# NOTE: some files here are included without changes listed - this is due
+#   to the fact that later in the project we began using the wireless-next
+#   v3.19 kernel, which already included some of the changes we made from the
+#   vanilla mainline 3.19 kernel. 
+# These files are listed here in the case one would want to examine the 
+#   differences made from the mainline kernel.
+
+drivers/net/wireless/ath/ath9k/ani.c
+	- add OCB interface type to condition disabling ANI (adaptive noise 
+	  immunity) reset 
+
+drivers/net/wireless/ath/ath9k/ath9k.h
+	- add counter for virtual OCB interfaces
+
+drivers/net/wireless/ath/ath9k/common-init.c
+	- add ITS-G5 channel definitions to list of supported channels
+
+drivers/net/wireless/ath/ath9k/htc_drv_init.c
+	- add OCB interface type to list of atheros hardware capabilities
+
+drivers/net/wireless/ath/ath9k/htc_drv_main.c
+	- set target virtual interface's type as monitor (for listening for 
+	  wsmp packets) 
+
+drivers/net/wireless/ath/ath9k/htc_drv_txrx.c
+	- identify 1/2 and 1/4 rate channels (5MHz and 10MHz) and add flags
+	  to the receiver status
+
+drivers/net/wireless/ath/ath9k/htc.h
+
+drivers/net/wireless/ath/ath9k/hw.c
+	- For OCB interface type, set hardware operating mode as ADHOC
+
+drivers/net/wireless/ath/ath9k/hw.h
+	- update number of active channels from pre-ITS-G5 (38) to ITS-G5 (54)
+
+drivers/net/wireless/ath/ath9k/init.c
+	- add OCB interface type to list of hardware's interface modes
+
+drivers/net/wireless/ath/ath9k/main.c
+	- when calculating data about virtual interface, if interface type is
+	  set to OCB we increment OCB virtual interface counter
+	- when calculating current state, if there exist > 0 ocb virtual 
+	  interfaces, we set the hardware's mode of operation to OCB
+	- add check for active OCB interfaces when raising TSFOOR in the 
+	  interface mask (TSFOOR configures beacon timers when a beaconing 
+	  frame is received, enabling hardware interrupts - not sure why this
+	  is necessary when OCB doesn't support beaconing) 
+	- add flag checking for change to OCB interface when checking ANI status
+	- when station data (sdata) is changed (specifically OCB sdata), touch
+	  the atheros debug output, set the current bssid to wildcard (all Fs),
+	  and write this change out to the hardware.
+
+drivers/net/wireless/ath/ath9k/recv.c
+	- In building a filter for the receiver, check that interface type is
+	  not OCB before adding a config option to process beacons
+		- Since by IEEE1609, OCB doesn't support beaconing
+	- check if the current channel is marked as 1/2 or 1/4 width - if so,
+	  add flag denoting this to receiver interface
+
+drivers/net/wireless/ath/ath9k/xmit.c
+	- check if the current channel is marked as 1/2 or 1/4 width - if so,
+	  add flag denoting this to receiver interface
+
+drivers/net/wireless/ath/regd.c
+	- modify atheros 5GHZ channel definitions to encompass 5.725-5.925GHz 
+	  channels for ITS-G5 
+	- disable check condition for verifying that the selected country's 
+	  regulatory domain settings can be modified 
+	- remove REGULATORY_STRICT_REG flag when setting regulatory flags
+	  for the wifi interface and leave REGULATORY_CUSTOM_REG
+	- only apply flags to regulatory domain that were set by the user
+	  (ignore limiting flags set by driver) 
+
+drivers/net/wireless/ath/debug.c
+
+drivers/net/wireless/ath/Kconfig
+	- add config option ATH_USER_REGD to force atheros driver to support
+	  custom regulatory domain (regd) 
+
+	-	-	-	-	-	-	-	-	-
+
+net/mac80211/rx.c
+	- when configuring the network interface before handing it to the 
+	  network handlers, if the interface type is OCB and the BSSID fetched
+	  does not match the wildcard (broadcast) BSSID, attempt to set the 
+	  BSSID (hdr->addr3) as the wildcard and recheck the condition
+
+net/mac80211/ocb.c
+	- add kernel debug statements
+
+net/mac80211/mlme.c
+
+net/mac80211/main.c
+	- when registering the networking hardware, if the interface type
+	  is set to OCB mode, add the signifying bit to the list of interface
+	  modes (hardware) and software interfaces
+	- add kernel debug statements
+	- in condition checking concurrent interface combinations, if it is
+	  found that there are multiple active interface types and >= one is 
+	  OCB, return an error (mac80211 does not permit interface combinations
+	  with OCB)
+
+net/mac80211/iface.c
+	- when checking if the local interface is active, check if the counter
+	  for ocb interfaces is > 0. 
+	- add kernel debug statements
+	- if interface type is OCB: 
+		- disable beaconing 
+		- add flag notifying that beaconing settings were updated
+		- configure filter to receive no-beaconing frames
+		- switch the network carrier on
+	- when stopping the network interface, use the IBSS/ADHOC stop
+	  function rather than the ocb_leave function
+	- when stopping the network interface, if the interface type is 
+	  OCB, decrement the active ocb interface counter
+	- stop using the ieee80211_ocb_rx_queued_mgmt function when doing
+	  work for the network interface - this function is no longer
+	  implemented in the wireless-next 3.19 kernel
+
+net/mac80211/ieee80211_i.h
+	- add counter for ocb interfaces 
+
+net/mac80211/debug.h
+
+net/mac80211/chan.c
+
+net/mac80211/cfg.c
+	- Add OCB interface type to check when attempting to scan for APs
+		- doesn't OCB mode not support scanning? (? disable)
+	- If channel context is enabled and the interface type is OCB, 
+	  use the prebuilt channel definition for monitor mode
+
+net/mac80211/util.c
+	- when retrieving the BSSID, if the interface type is set to OCB,
+	  return the BSSID set in hdr->addr3 (OCB hdr configuration is
+	  DESTINATION ADDRESS (addr1), SENDING ADDRESS (addr2), BSSID (addr3))
+
+net/mac80211/tx.c
+	- when configuring the rate control algorithm (default is Minstrel)
+	  add OCB interface type in condition to set the transmission rate 
+	  control as a BSS interface
+	- when preparing the transmission interface, if the interface type is
+	  OCB && the tx interface is not in station mode && the tx interface
+	  is configured for unicast transmission (transmission to a single
+	  destination with a specific message type), use the method for OCB
+	  interface reception without stationing configuration
+
+	-	-	-	-	-	-	-	-	-
+
+net/wireless/util.c
+	- set the BSSID memory address to wildcard/broadcast when the interface
+	  type is OCB
+	- when changing interface types, if the current type is OCB, support
+	  stopping the OCB interface
+
+net/wireless/trace.h
+
+net/wireless/reg.c 
+	- support adding the IEEE80211_CHAN_OCB_ONLY flag to a channel's
+	  restrictions
+	- support restricting a channel's bandwidth to (< 20MHz) or (< 10MHz)
+	  for use with 10MHz and 5MHz channels
+	  - for standard and custom channel types
+
+net/wireless/rdev-ops.h
+
+net/wireless/ocb.c
+
+net/wireless/nl80211.c
+	- add kernel debug statements
+	- add IEEE80211_CHAN_OCB_ONLY flag to condition checking whether 
+	  to exclude the channel from use, due to malinteraction with the 
+	  userspace utilities
+	- check if rdev wiphy flags exist and if 5/10MHz channels are supported
+	  -> If so, is there an error adding flag to support 5/10MHz channels?
+	- add definition of OCB JOIN command
+	- Only permit setting of channel in OCB mode through defined OCB JOIN
+	  command parameters (referenced above)
+	- allow creation of channel definitions for 5MHz and 10MHz channels
+	- support packing/transmitting channel definition for 5/10MHz channels
+	- when attempting to join the IBSS network, change condition to check
+	  if join_ocb has been called before returning a "not supported" error
+	- add OCB mode to list of supported interfaces for transmission 
+	  management 
+	- in nl80211_join_ocb function:
+		- initialize ocb_setup struct with 0s
+		- unless a wifi frequency parameter has been input, return
+		  an error
+
+net/wireless/Kconfig
+	- set the use of the internal (custom) regdb for cfg80211 to true
+	  (always use the internal regdb)
+	- add kernal configuration option to always support CRDA
+	  (regulatory compliance mechanism between kernel-space nl80211 and 
+	   userspace domain regulation utilities)
+
+net/wireless/db.txt
+	- define regulatory database that supports use of the ITS-G5 bands 
+	  in the United States
+
+net/wireless/core.h
+
+net/wireless/chan.c
+	- when creating the channel definition, add cases to set proper channel
+	  configuration for 5MHz and 10MHz channels
+	- add kernel debug statements
+		- 5 and 10MHz isn't being set properly
+	- add OCB interface type to condition setting DFS (dynamic frequency
+	  selection) due to AD-HOC nature of OCB. DFS makes the interface
+	  automatically select frequency channels with low interference as to
+	  avoid interfering with external high-priority functions (e.g. radar)
+	- if channel width is set to 5MHz or 10MHz, prohibit the interface flag
+	  that doesn't allow use of 5MHz or 10MHz channels
+	- disallow beacon registration if the interface type is set to OCB
+	  (since OCB mode doesn't use beaconing)
+	- when retrieving the channel state, if the interface type is set to
+	  OCB, set the corresponding channel configuration flags
+	  (this condition is included in the wireless-next kernel, but this
+	   case was moved to the beginning of the switch conditional)
+
+	-	-	-	-	-	-	-	-	-
+
+include/net/mac80211.h
+	- add transmission control flags for 5MHz and 10MHz modes
+
+include/net/cfg80211.h
+	- add flag restricting selected channel exclusively to OCB mode
+	- move definition of struct ocb_setup (organizational aesthetics) 
+	- add cases to return 5/10MHz channel types 
+		- might need to remove these: aren't 5&10MHz classified as
+		  20_NOHT? 
+
+include/uapi/linux/nl80211.h
+	- add netlink attribute forbidding OCB only channel restriction 
+	- add regulatory rule flag denoting a channel is to be used exclusively
+	  for OCB mode
+	- add definition of 5/10MHz channels
+
+	-	-	-	-	-	-	-	-	-
+
+
+
