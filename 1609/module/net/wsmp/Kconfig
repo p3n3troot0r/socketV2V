@@ -1,5 +1,0 @@
-config WSMP_NET
-	default m
-	tristate "Include WSMP support"
-	help
-	  "Allow usage of WSMP tx/rx functions & handling"
